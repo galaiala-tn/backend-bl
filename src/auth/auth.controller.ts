@@ -29,4 +29,11 @@ export class AuthController {
   me(@CurrentUser() user: AuthenticatedUser) {
     return user;
   }
+  @Get('test-supabase')
+testSupabase() {
+  if (process.env.NODE_ENV === 'production') {
+    return { message: 'Endpoint désactivé en production' };
+  }
+  return this.authService.testSupabase();
+}
 }

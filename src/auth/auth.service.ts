@@ -100,4 +100,17 @@ export class AuthService {
     }
     return data;
   }
+  async testSupabase() {
+  try {
+    const { data, error } = await this.supabase.getClient().auth.admin.listUsers();
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, usersCount: data.users.length };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
 }
