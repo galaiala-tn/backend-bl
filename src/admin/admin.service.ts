@@ -7,11 +7,6 @@ import { AdminCreateUserDto, UpdateChauffeurDto, UpdateCustomerActiveDto } from 
 export class AdminService {
   constructor(private readonly supabase: SupabaseService) {}
 
-  // ---------------------------------------------------------------------
-  // User creation — the only path that can create an 'admin' account,
-  // and an admin-driven alternative to self-registration for chauffeurs
-  // (e.g. onboarding a chauffeur who doesn't do it themselves).
-  // ---------------------------------------------------------------------
   async createUser(dto: AdminCreateUserDto) {
     if (dto.role === AppRole.CHAUFFEUR && !dto.licenseNumber) {
       throw new BadRequestException('licenseNumber is required when creating a chauffeur');
@@ -33,8 +28,6 @@ export class AdminService {
       throw new BadRequestException(error?.message ?? 'Could not create user');
     }
 
-    // handle_new_auth_user (Phase 1 trigger) has already created profiles/
-    // customers/chauffeurs by the time this resolves — fetch it back for the response.
     const { data: profile } = await this.supabase
       .getClient()
       .from('profiles')
@@ -45,9 +38,6 @@ export class AdminService {
     return profile ?? { id: data.user.id, role: dto.role, fullName: dto.fullName, email: dto.email };
   }
 
-  // ---------------------------------------------------------------------
-  // Dashboard stats
-  // ---------------------------------------------------------------------
   async getStats() {
     const client = this.supabase.getClient();
 
@@ -97,16 +87,10 @@ export class AdminService {
     };
   }
 
-  // ---------------------------------------------------------------------
-  // Customers
-  // ---------------------------------------------------------------------
   async listCustomers() {
     const { data, error } = await this.supabase
       .getClient()
       .from('customers')
-      // Explicit FK constraint name (customers.id -> profiles.id) — the
-      // shorthand `profiles:id(...)` was ambiguous because PostgREST found
-      // more than one relationship path between customers and profiles.
       .select('*, profiles!customers_id_fkey(full_name, email, phone, is_active, created_at)')
       .order('created_at', { ascending: false });
 
@@ -127,9 +111,6 @@ export class AdminService {
     return data;
   }
 
-  // ---------------------------------------------------------------------
-  // Chauffeurs
-  // ---------------------------------------------------------------------
   async listChauffeurs() {
     const { data, error } = await this.supabase
       .getClient()
