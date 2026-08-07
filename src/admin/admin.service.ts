@@ -104,7 +104,10 @@ export class AdminService {
     const { data, error } = await this.supabase
       .getClient()
       .from('customers')
-      .select('*, profiles:id(full_name, email, phone, is_active, created_at)')
+      // Explicit FK constraint name (customers.id -> profiles.id) — the
+      // shorthand `profiles:id(...)` was ambiguous because PostgREST found
+      // more than one relationship path between customers and profiles.
+      .select('*, profiles!customers_id_fkey(full_name, email, phone, is_active, created_at)')
       .order('created_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
@@ -131,7 +134,9 @@ export class AdminService {
     const { data, error } = await this.supabase
       .getClient()
       .from('chauffeurs')
-      .select('*, profiles:id(full_name, email, phone, is_active), vehicles(make, model, plate_number)')
+      .select(
+        '*, profiles!chauffeurs_id_fkey(full_name, email, phone, is_active), vehicles(make, model, plate_number)',
+      )
       .order('created_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
