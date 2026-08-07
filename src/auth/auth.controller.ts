@@ -24,16 +24,20 @@ export class AuthController {
     return this.authService.refresh(dto);
   }
 
+  // Renvoie exactement le même format que `user` dans /auth/login,
+  // en lisant la base plutôt que le JWT — sinon UserProfile.fromJson()
+  // plante au prochain démarrage de l'app après une connexion réussie.
   @UseGuards(JwtAuthGuard)
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser) {
-    return user;
+    return this.authService.getProfile(user.id);
   }
+
   @Get('test-supabase')
-testSupabase() {
-  if (process.env.NODE_ENV === 'production') {
-    return { message: 'Endpoint désactivé en production' };
+  testSupabase() {
+    if (process.env.NODE_ENV === 'production') {
+      return { message: 'Endpoint désactivé en production' };
+    }
+    return this.authService.testSupabase();
   }
-  return this.authService.testSupabase();
-}
 }

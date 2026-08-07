@@ -7,8 +7,6 @@ import { LoginDto, RefreshTokenDto, RegisterDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
-  /** Public (anon-key) client — used only for password-based sign-in/refresh,
-   *  since the GoTrue admin API (service role) doesn't do password auth. */
   private readonly publicClient: SupabaseClient;
 
   constructor(
@@ -29,8 +27,6 @@ export class AuthService {
       throw new BadRequestException('licenseNumber is required when registering as a chauffeur');
     }
 
-    // Creates the auth.users row with metadata that Phase 1's
-    // handle_new_auth_user trigger reads to create profiles/customers/chauffeurs.
     const { data, error } = await this.supabase.getClient().auth.admin.createUser({
       email: dto.email,
       password: dto.password,
@@ -47,7 +43,6 @@ export class AuthService {
       throw new BadRequestException(error?.message ?? 'Registration failed');
     }
 
-    // Immediately sign in to return usable tokens to the client.
     return this.login({ email: dto.email, password: dto.password });
   }
 
@@ -87,11 +82,17 @@ export class AuthService {
     };
   }
 
-  private async getProfile(userId: string) {
+  /**
+   * Public on purpose: single source of truth for "what a user profile
+   * looks like over the wire". Both /auth/login and /auth/me call this,
+   * so the Flutter app's UserProfile.fromJson() always receives the exact
+   * same shape — including created_at, which it requires.
+   */
+  async getProfile(userId: string) {
     const { data, error } = await this.supabase
       .getClient()
       .from('profiles')
-      .select('id, role, full_name, email, phone, avatar_url')
+      .select('id, role, full_name, email, phone, avatar_url, is_active, created_at')
       .eq('id', userId)
       .single();
 
@@ -100,17 +101,18 @@ export class AuthService {
     }
     return data;
   }
+
   async testSupabase() {
-  try {
-    const { data, error } = await this.supabase.getClient().auth.admin.listUsers();
+    try {
+      const { data, error } = await this.supabase.getClient().auth.admin.listUsers();
 
-    if (error) {
-      return { success: false, error: error.message };
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, usersCount: data.users.length };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
     }
-
-    return { success: true, usersCount: data.users.length };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
   }
-}
 }
