@@ -41,34 +41,44 @@ export class InvoicesService {
 
     const { data: existing } = await client
       .from('invoices')
-      .select('id')
+      .select('id, invoice_number, issued_at, pdf_url')
       .eq('reservation_id', reservationId)
       .maybeSingle();
-    if (existing) return existing; // idempotent — don't double-invoice
+
+    if (existing?.pdf_url) return existing; // already fully generated — nothing to do
 
     const subtotal = Number(reservation.subtotal);
     const totalAmount = Number(reservation.total_price);
     const taxAmount = round2(totalAmount - subtotal);
 
-    // Insert first (invoice_number is auto-assigned by the DB trigger from Phase 1).
-    const { data: invoice, error: insertError } = await client
-      .from('invoices')
-      .insert({
-        reservation_id: reservationId,
-        customer_id: reservation.customer_id,
-        subtotal,
-        tax_amount: taxAmount,
-        total_amount: totalAmount,
-        currency: 'USD',
-      })
-      .select()
-      .single();
+    let invoice = existing;
+    if (!invoice) {
+      // Insert first (invoice_number is auto-assigned by the DB trigger from Phase 1).
+      const { data: inserted, error: insertError } = await client
+        .from('invoices')
+        .insert({
+          reservation_id: reservationId,
+          customer_id: reservation.customer_id,
+          subtotal,
+          tax_amount: taxAmount,
+          total_amount: totalAmount,
+          currency: 'USD',
+        })
+        .select()
+        .single();
 
-    if (insertError || !invoice) {
-      this.logger.error(
-        `generateForReservation: failed to insert invoice for reservation ${reservationId}: ${insertError?.message ?? 'no data returned'}`,
-      );
-      throw new BadRequestException(insertError?.message ?? 'Could not create invoice record');
+      if (insertError || !inserted) {
+        this.logger.error(
+          `generateForReservation: failed to insert invoice for reservation ${reservationId}: ${insertError?.message ?? 'no data returned'}`,
+        );
+        throw new BadRequestException(insertError?.message ?? 'Could not create invoice record');
+      }
+      invoice = inserted;
+    }
+
+    if (!invoice) {
+      // Unreachable in practice — satisfies strict null checks.
+      throw new BadRequestException('Could not resolve invoice record');
     }
 
     const customerName = reservation.customers?.profiles?.full_name ?? 'Customer';
@@ -101,8 +111,16 @@ export class InvoicesService {
 
     if (uploadError) {
       this.logger.error(`Invoice PDF upload failed: ${uploadError.message}`);
-    } else {
-      await client.from('invoices').update({ pdf_url: path }).eq('id', invoice.id);
+      return invoice; // invoice row exists, but pdf_url stays null — retryable later
+    }
+
+    const { error: updateError } = await client
+      .from('invoices')
+      .update({ pdf_url: path })
+      .eq('id', invoice.id);
+
+    if (updateError) {
+      this.logger.error(`Failed to persist pdf_url for invoice ${invoice.id}: ${updateError.message}`);
     }
 
     return { ...invoice, pdf_url: path };
