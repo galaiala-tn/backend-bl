@@ -27,12 +27,17 @@ export class InvoicesService {
     const { data: reservation, error } = await client
       .from('reservations')
       .select(
-        '*, customers:customer_id(id, profiles:id(full_name, email)), vehicle_categories(display_name)',
+        '*, customers:customer_id(id, profiles!customers_id_fkey(full_name, email)), vehicle_categories(display_name)',
       )
       .eq('id', reservationId)
       .single();
 
-    if (error || !reservation) throw new NotFoundException('Reservation not found');
+    if (error || !reservation) {
+      this.logger.error(
+        `generateForReservation: failed to load reservation ${reservationId}: ${error?.message ?? 'no data returned'}`,
+      );
+      throw new NotFoundException('Reservation not found');
+    }
 
     const { data: existing } = await client
       .from('invoices')
@@ -60,6 +65,9 @@ export class InvoicesService {
       .single();
 
     if (insertError || !invoice) {
+      this.logger.error(
+        `generateForReservation: failed to insert invoice for reservation ${reservationId}: ${insertError?.message ?? 'no data returned'}`,
+      );
       throw new BadRequestException(insertError?.message ?? 'Could not create invoice record');
     }
 
@@ -117,7 +125,7 @@ export class InvoicesService {
     const { data, error } = await this.supabase
       .getClient()
       .from('invoices')
-      .select('*, customers:customer_id(profiles:id(full_name, email))')
+      .select('*, customers:customer_id(profiles!customers_id_fkey(full_name, email))')
       .order('issued_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
