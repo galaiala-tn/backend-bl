@@ -128,10 +128,19 @@ export class AdminService {
   // Chauffeurs
   // ---------------------------------------------------------------------
   async listChauffeurs() {
+    // NOTE: 'chauffeurs' <-> 'vehicles' has TWO foreign keys between them
+    // (chauffeurs.vehicle_id -> vehicles.id, AND vehicles.chauffeur_id ->
+    // chauffeurs.id), so PostgREST can't infer which relationship to embed
+    // and returns 400 "more than one relationship was found" if left
+    // unqualified. We want "this chauffeur's assigned vehicle", which is
+    // the chauffeurs.vehicle_id -> vehicles.id relationship, i.e.
+    // constraint fk_chauffeurs_vehicle.
     const { data, error } = await this.supabase
       .getClient()
       .from('chauffeurs')
-      .select('*, profiles!chauffeurs_id_fkey(full_name, email, phone, is_active), vehicles(make, model, plate_number)')
+      .select(
+        '*, profiles!chauffeurs_id_fkey(full_name, email, phone, is_active), vehicles!fk_chauffeurs_vehicle(make, model, plate_number)',
+      )
       .order('created_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
