@@ -150,13 +150,17 @@ export class InvoicesService {
     return data;
   }
 
-  /** Returns a time-limited signed URL to download the invoice PDF. */
+  /**
+   * Returns a time-limited signed URL to download the invoice PDF.
+   * If the PDF was never successfully generated (e.g. a past storage
+   * failure), this transparently retries generation before signing.
+   */
   async getDownloadUrl(invoiceId: string, requestingCustomerId?: string) {
     const client = this.supabase.getClient();
 
     const { data: invoice, error } = await client
       .from('invoices')
-      .select('id, customer_id, pdf_url')
+      .select('id, reservation_id, customer_id, pdf_url')
       .eq('id', invoiceId)
       .single();
 
@@ -164,11 +168,20 @@ export class InvoicesService {
     if (requestingCustomerId && invoice.customer_id !== requestingCustomerId) {
       throw new BadRequestException('This invoice does not belong to you');
     }
-    if (!invoice.pdf_url) throw new BadRequestException('Invoice PDF is not ready yet');
+
+    let pdfUrl = invoice.pdf_url;
+    if (!pdfUrl) {
+      this.logger.warn(`Invoice ${invoice.id} missing pdf_url — retrying generation on demand`);
+      const regenerated = await this.generateForReservation(invoice.reservation_id);
+      pdfUrl = regenerated.pdf_url ?? null;
+      if (!pdfUrl) {
+        throw new BadRequestException('Invoice PDF could not be generated — please try again shortly');
+      }
+    }
 
     const { data: signed, error: signError } = await client.storage
       .from(this.bucket)
-      .createSignedUrl(invoice.pdf_url, 60 * 10); // 10 minutes
+      .createSignedUrl(pdfUrl, 60 * 10); // 10 minutes
 
     if (signError || !signed) throw new BadRequestException('Could not create download link');
 
